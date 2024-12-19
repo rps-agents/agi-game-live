@@ -1,0 +1,48 @@
+# Node.js dependencies
+node_modules/
+
+# npm debug log
+npm-debug.log*
+
+# yarn error logs
+yarn-error.log
+
+# Optional: Uncomment if you're using yarn
+# yarn.lock
+
+# Optional: Uncomment if you're using pnpm
+# pnpm-lock.yaml
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Build output
+/dist
+/build
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+Thumbs.db
+
+# Ignore venv in functions folder for Firebase
+functions/venv/
+
+# Also ignore other common Python virtual environment names
+functions/.venv/
+functions/env/
+functions/.env/
+
+# Ignore Python cache files in functions folder
+functions/__pycache__/
+functions/**/__pycache__/
+functions/*.pyc
+functions/**/*.pyc
