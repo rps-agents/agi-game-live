@@ -1,3 +1,4 @@
+import datetime
 import tweepy
 from typing import Optional, List
 import logging
@@ -5,6 +6,7 @@ import os
 from dotenv import load_dotenv
 from litellm import completion, image_generation
 import requests
+import time
 os.environ["OPENAI_API_KEY"] = os.getenv("OPENAI_API_KEY", "")
 
 class TwitterPoster:
@@ -14,11 +16,13 @@ class TwitterPoster:
         api_secret = os.getenv('TWITTER_API_SECRET') 
         access_token = os.getenv('TWITTER_ACCESS_TOKEN')
         access_token_secret = os.getenv('TWITTER_ACCESS_TOKEN_SECRET')
+        bearer_token = os.getenv('TWITTER_BEARER_TOKEN')
 
-        if not all([api_key, api_secret, access_token, access_token_secret]):
+        if not all([api_key, api_secret, access_token, access_token_secret, bearer_token]):
             raise ValueError("Missing required Twitter credentials in environment variables")
 
         self.client = tweepy.Client(
+            bearer_token=bearer_token,
             consumer_key=api_key,
             consumer_secret=api_secret,
             access_token=access_token,
@@ -64,8 +68,8 @@ class TwitterPoster:
             self.logger.error(f"Error generating image: {str(e)}")
             raise
 
-    def post_tweet(self, text: str, media_paths: Optional[List[str]] = None) -> dict:
-        """Post a tweet with optional media attachments."""
+    def post_tweet(self, text: str, media_paths: Optional[List[str]] = None, reply_to: Optional[str] = None) -> dict:
+        """Post a tweet with optional media attachments and reply functionality."""
         try:
             media_ids = []
             if media_paths:
@@ -75,7 +79,8 @@ class TwitterPoster:
 
             response = self.client.create_tweet(
                 text=text,
-                media_ids=media_ids if media_ids else None
+                media_ids=media_ids if media_ids else None,
+                in_reply_to_tweet_id=reply_to
             )
             
             self.logger.info(f"Tweet posted successfully: {response.data['id']}")
@@ -85,7 +90,7 @@ class TwitterPoster:
             self.logger.error(f"Error posting tweet: {str(e)}")
             raise
 
-    def generate_and_post(self, prompt: str, media_paths: Optional[List[str]] = None, generate_image_prompt: Optional[str] = None) -> dict:
+    def generate_and_post(self, prompt: str, media_paths: Optional[List[str]] = None, generate_image_prompt: Optional[str] = None, reply_to: Optional[str] = None) -> dict:
         """Generate and post a tweet in one step, optionally generating an AI image."""
         tweet_content = self.generate_tweet_content(prompt)
         self.logger.info(f"Generated tweet content: {tweet_content}")
@@ -100,14 +105,86 @@ class TwitterPoster:
             else:
                 media_paths = [generated_image_path]
 
-        return self.post_tweet(tweet_content, media_paths)
+        return self.post_tweet(tweet_content, media_paths, reply_to)
 
+    def listen_and_respond(self):
+        """Listen for mentions and respond to them."""
+        self.logger.info("Starting mention listener...")
+        
+        try:
+            # Add more detailed error logging
+            me = self.client.get_me()
+            if not me[0]:
+                self.logger.error("Failed to get user information")
+                raise tweepy.TweepyException("Failed to verify authentication")
+            self.logger.info(f"Authentication successful for user: {me[0].username}")
+            
+            # Keep track of the last mention we've responded to
+            last_mention_id = None
+            
+            while True:
+                try:
+                    # Get mentions timeline from last 5 minutes
+                    current_time = datetime.datetime.utcnow()
+                    five_mins_ago = current_time - datetime.timedelta(minutes=5)
+                    
+                    # Format timestamp in correct RFC3339 format
+                    start_time = five_mins_ago.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+                    
+                    mentions = self.client.get_users_mentions(
+                        id=me[0].id,
+                        start_time=start_time
+                    ).data
+                    
+                    if mentions:
+                        # Process mentions only if we got some data back
+                        mentions_with_created = []
+                        for mention in mentions:
+                            if hasattr(mention, 'created_at'):
+                                mentions_with_created.append(mention)
+                        
+                        if mentions_with_created:
+                            # Sort mentions by created_at and get only the most recent one
+                            most_recent = max(mentions_with_created, key=lambda x: x.created_at)
+                            
+                            # Log mention details
+                            self.logger.info(f"Processing most recent mention - ID: {most_recent.id}, Text: {most_recent.text}, From: {most_recent.author_id}, Created at: {most_recent.created_at}")
+                            
+                            # Generate a response tweet
+                            tweet_content = self.generate_tweet_content(
+                                f"Respond to this tweet: {most_recent.text}"
+                            )
+                            
+                            # Post the response as a reply
+                            response = self.post_tweet(
+                                text=tweet_content,
+                                reply_to=most_recent.id
+                            )
+                            
+                            self.logger.info(f"Responded to mention {most_recent.id} with tweet: {tweet_content}")
+                    
+                    # Wait before checking for new mentions
+                    time.sleep(15)
+                    
+                except Exception as e:
+                    self.logger.error(f"Error in mention listener: {str(e)}")
+                    time.sleep(15)  # Wait before retrying
+        except tweepy.TweepyException as e:
+            self.logger.error(f"Twitter API Error: {str(e)}")
+            self.logger.error(f"Error Response: {getattr(e, 'response', 'No response data')}")
+            raise
+        except Exception as e:
+            self.logger.error(f"Unexpected error: {str(e)}")
+            raise
 # Usage example
 if __name__ == "__main__":
     twitter = TwitterPoster()
-
-    # Generate and post AI content with generated image
-    twitter.generate_and_post(
-        "Share an interesting fact about space exploration",
-        generate_image_prompt="A stunning view of a spiral galaxy with vibrant colors"
-    )
+    
+    # Start listening for mentions and responding
+    twitter.listen_and_respond()
+    # Example of posting a tweet
+    # response = twitter.generate_and_post(
+    #     prompt="Share an interesting fact about technology and AI",
+    #     generate_image_prompt="A stylish digital art piece related to technology"
+    # )
+    # print(f"Tweet posted with ID: {response['id']}")
