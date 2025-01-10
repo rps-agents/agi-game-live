@@ -46,3 +46,10 @@ functions/__pycache__/
 functions/**/__pycache__/
 functions/*.pyc
 functions/**/*.pyc
+
+# Python virtual environments (anywhere in the project)
+venv/
+.venv/
+env/
+.env/
+ENV/
